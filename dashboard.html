@@ -71,7 +71,7 @@
   /* Sections */
   .section { margin-bottom: 40px; }
   .section + .section { padding-top: 32px; border-top: 1px solid var(--border); }
-  .section-title { font-size: 17px; font-weight: 700; margin: 0 0 4px; }
+  .section-title { font-size: 17px; font-weight: 700; margin: 0 0 14px; }
   .section-subtitle { font-size: 13px; color: var(--text-secondary); margin: 0 0 16px; }
 
   .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -237,7 +237,7 @@
 
   <div class="section">
     <div class="section-title">Trend</div>
-    <div class="section-subtitle" id="trendSubtitle">Last 14 days, merged across every agent line — hover a point for that day's top issues</div>
+    <div class="section-subtitle" id="trendSubtitle"></div>
     <div class="card">
       <div class="chart-wrap">
         <div class="linechart-wrap" id="trendChart"></div>
@@ -248,7 +248,6 @@
 
   <div class="section">
     <div class="section-title">What's causing it</div>
-    <div class="section-subtitle">Top issues across every audited call we have detail for. Click an issue to open the call list, then click a call to hear it and read the transcript</div>
     <div class="card">
       <div class="group-toggle" id="groupToggle">
         <span class="chip active" data-mode="lane">By category</span>
@@ -499,8 +498,7 @@
       return;
     }
 
-    document.getElementById('trendSubtitle').textContent =
-      'Last 14 days · showing ' + codes[0].title + ' · hover a point for the top 3 issues that day';
+    document.getElementById('trendSubtitle').textContent = codes[0].title;
 
     var VBW = 1000, VBH = 300, padTop = 24, padBottom = 8;
     var plotH = VBH - padTop - padBottom;
