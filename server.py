@@ -4,8 +4,13 @@
 Serves the dashboard UI and proxies live call-detail / audio requests to the
 SuperBryn API so the API key never reaches the browser.
 
+SuperBryn issues one API key per agent line, so set SUPERBRYN_API_KEY_<AGENT_LABEL>
+(upper-cased, e.g. SUPERBRYN_API_KEY_SALES_INBOUND) per agent; SUPERBRYN_API_KEY with
+no suffix is an optional fallback used when a call's agent has no scoped key set.
+
 Usage:
-    export SUPERBRYN_API_KEY=sbryn_...
+    export SUPERBRYN_API_KEY_SALES_INBOUND=sbryn_...
+    export SUPERBRYN_API_KEY_SALES_OUTBOUND=sbryn_...
     python3 server.py [--port 8000] [--data data/observability_calls_....json]
 
 By default it loads and merges every data/observability_calls_*.json file
@@ -35,7 +40,21 @@ TZ = ZoneInfo("Asia/Kolkata")
 CALLS = {}
 ISSUE_RCA = {}
 THEMES = []
-API_KEY = None
+
+# SuperBryn issues a separate API key per agent line (sales_inbound, sales_outbound, ...) -
+# fetch_superbryn_calls.py / fetch_red_alert_transcripts.py already take a --api-key per
+# --label for this reason. Set SUPERBRYN_API_KEY_<AGENT_LABEL upper-cased> per agent;
+# SUPERBRYN_API_KEY (no suffix) is an optional fallback for a single-key setup.
+DEFAULT_API_KEY = None
+
+
+def api_key_for(agent_label):
+    if agent_label:
+        scoped = os.environ.get(f"SUPERBRYN_API_KEY_{agent_label.upper()}")
+        if scoped:
+            return scoped
+    return DEFAULT_API_KEY
+
 
 CALL_AUDIO_RE = re.compile(r"^/api/calls/([0-9a-fA-F-]+)/audio$")
 CALL_DETAIL_RE = re.compile(r"^/api/calls/([0-9a-fA-F-]+)$")
@@ -352,10 +371,12 @@ def call_brief(rec):
 REQUEST_TIMEOUT_SECONDS = 10
 
 
-def fetch_call_detail(call_id):
+def fetch_call_detail(call_id, api_key):
+    if not api_key:
+        return 500, json.dumps({"error": {"message": "Missing a SuperBryn API key for this call's agent", "code": "no_api_key"}}).encode()
     req = urllib.request.Request(
         f"https://{API_HOST}{BASE_PATH}/observability/calls/{call_id}",
-        headers={"X-API-Key": API_KEY},
+        headers={"X-API-Key": api_key},
     )
     try:
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
@@ -367,13 +388,15 @@ def fetch_call_detail(call_id):
         return 504, json.dumps({"error": {"message": f"Upstream request failed: {e.reason}", "code": "upstream_unreachable"}}).encode()
 
 
-def fetch_audio_redirect(call_id):
+def fetch_audio_redirect(call_id, api_key):
+    if not api_key:
+        return 500, None
     conn = http.client.HTTPSConnection(API_HOST, timeout=REQUEST_TIMEOUT_SECONDS)
     try:
         conn.request(
             "GET",
             f"{BASE_PATH}/observability/calls/{call_id}/audio",
-            headers={"X-API-Key": API_KEY},
+            headers={"X-API-Key": api_key},
         )
         resp = conn.getresponse()
         location = resp.getheader("Location")
@@ -456,7 +479,9 @@ class Handler(BaseHTTPRequestHandler):
         m = CALL_AUDIO_RE.match(path)
         if m:
             call_id = m.group(1)
-            status, location = fetch_audio_redirect(call_id)
+            rec = CALLS.get(call_id)
+            key = api_key_for(agent_key(rec) if rec else None)
+            status, location = fetch_audio_redirect(call_id, key)
             if status == 302 and location:
                 self.send_response(302)
                 self.send_header("Location", location)
@@ -471,7 +496,9 @@ class Handler(BaseHTTPRequestHandler):
             # list-view record used for issue/theme aggregation) is kept in CALLS; the full
             # detail (transcript/audio/metrics) for one specific call is fetched fresh on click.
             call_id = m.group(1)
-            status, body = fetch_call_detail(call_id)
+            rec = CALLS.get(call_id)
+            key = api_key_for(agent_key(rec) if rec else None)
+            status, body = fetch_call_detail(call_id, key)
             self._send_bytes(body, status, "application/json")
             return
 
@@ -479,7 +506,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global API_KEY
+    global DEFAULT_API_KEY
 
     parser = argparse.ArgumentParser(description="Run the SuperBryn call quality dashboard")
     parser.add_argument("--port", type=int, default=8000)
@@ -491,9 +518,13 @@ def main():
     )
     args = parser.parse_args()
 
-    API_KEY = os.environ.get("SUPERBRYN_API_KEY")
-    if not API_KEY:
-        sys.exit("Missing API key. Set SUPERBRYN_API_KEY env var (needed to fetch call detail/audio live).")
+    DEFAULT_API_KEY = os.environ.get("SUPERBRYN_API_KEY")
+    if not DEFAULT_API_KEY and not any(k.startswith("SUPERBRYN_API_KEY_") for k in os.environ):
+        print(
+            "Warning: no SUPERBRYN_API_KEY or SUPERBRYN_API_KEY_<AGENT> env var set - "
+            "call detail/audio will fail to load live, but aggregate views still work.",
+            file=sys.stderr,
+        )
 
     base = os.path.dirname(os.path.abspath(__file__))
 

@@ -4,8 +4,10 @@ All routes (the dashboard page and every /api/* endpoint) are rewritten to this 
 function by vercel.json. Aggregate data (call counts, verdicts, issue codes) comes from
 the compact data/snapshot.json committed to the repo - see build_snapshot.py for how
 that's built and refreshed. Per-call transcript/audio is fetched live from the SuperBryn
-API on each request (SUPERBRYN_API_KEY set as a Vercel environment variable) - nothing
-about an individual call's content is stored here, only the aggregate.
+API on each request - nothing about an individual call's content is stored here, only
+the aggregate. SuperBryn issues one API key per agent line, so the key used is picked
+per call via SUPERBRYN_API_KEY_<AGENT_LABEL> Vercel environment variables (see
+api_key_for() below), falling back to a single SUPERBRYN_API_KEY if set.
 """
 import http.client
 import json
@@ -28,7 +30,20 @@ REQUEST_TIMEOUT_SECONDS = 10
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
-API_KEY = os.environ.get("SUPERBRYN_API_KEY")
+# SuperBryn issues a separate API key per agent line (sales_inbound, sales_outbound, ...) -
+# the fetch scripts already take a --api-key per --label for this reason. Set
+# SUPERBRYN_API_KEY_<AGENT_LABEL upper-cased> per agent as a Vercel env var; SUPERBRYN_API_KEY
+# (no suffix) is an optional fallback for a single-key setup or an unrecognized agent_label.
+DEFAULT_API_KEY = os.environ.get("SUPERBRYN_API_KEY")
+
+
+def api_key_for(agent_label):
+    if agent_label:
+        scoped = os.environ.get(f"SUPERBRYN_API_KEY_{agent_label.upper()}")
+        if scoped:
+            return scoped
+    return DEFAULT_API_KEY
+
 
 CALL_AUDIO_RE = re.compile(r"^/api/calls/([0-9a-fA-F-]+)/audio$")
 CALL_DETAIL_RE = re.compile(r"^/api/calls/([0-9a-fA-F-]+)$")
@@ -187,12 +202,12 @@ def call_brief(rec):
     }
 
 
-def fetch_call_detail(call_id):
-    if not API_KEY:
-        return 500, json.dumps({"error": {"message": "Server missing SUPERBRYN_API_KEY", "code": "no_api_key"}}).encode()
+def fetch_call_detail(call_id, api_key):
+    if not api_key:
+        return 500, json.dumps({"error": {"message": "Server missing a SuperBryn API key for this call's agent", "code": "no_api_key"}}).encode()
     req = urllib.request.Request(
         f"https://{API_HOST}{BASE_PATH}/observability/calls/{call_id}",
-        headers={"X-API-Key": API_KEY},
+        headers={"X-API-Key": api_key},
     )
     try:
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
@@ -203,12 +218,12 @@ def fetch_call_detail(call_id):
         return 504, json.dumps({"error": {"message": f"Upstream request failed: {e.reason}", "code": "upstream_unreachable"}}).encode()
 
 
-def fetch_audio_redirect(call_id):
-    if not API_KEY:
+def fetch_audio_redirect(call_id, api_key):
+    if not api_key:
         return 500, None
     conn = http.client.HTTPSConnection(API_HOST, timeout=REQUEST_TIMEOUT_SECONDS)
     try:
-        conn.request("GET", f"{BASE_PATH}/observability/calls/{call_id}/audio", headers={"X-API-Key": API_KEY})
+        conn.request("GET", f"{BASE_PATH}/observability/calls/{call_id}/audio", headers={"X-API-Key": api_key})
         resp = conn.getresponse()
         location = resp.getheader("Location")
         status = resp.status
@@ -277,7 +292,10 @@ class handler(BaseHTTPRequestHandler):
 
         m = CALL_AUDIO_RE.match(path)
         if m:
-            status, location = fetch_audio_redirect(m.group(1))
+            call_id = m.group(1)
+            rec = CALLS_BY_ID.get(call_id)
+            key = api_key_for(rec.get("agent_label") if rec else None)
+            status, location = fetch_audio_redirect(call_id, key)
             if status == 302 and location:
                 self.send_response(302)
                 self.send_header("Location", location)
@@ -288,7 +306,10 @@ class handler(BaseHTTPRequestHandler):
 
         m = CALL_DETAIL_RE.match(path)
         if m:
-            status, body = fetch_call_detail(m.group(1))
+            call_id = m.group(1)
+            rec = CALLS_BY_ID.get(call_id)
+            key = api_key_for(rec.get("agent_label") if rec else None)
+            status, body = fetch_call_detail(call_id, key)
             self._send_bytes(body, status, "application/json")
             return
 
