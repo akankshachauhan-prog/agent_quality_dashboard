@@ -177,6 +177,28 @@ def compute_issues(calls):
     return issues
 
 
+def compute_issue_trend(calls, top_n=3):
+    """Day-by-day counts for the top N recurring issues (by total volume over the whole
+    window), so the trend chart can show which specific issues are driving the day-to-day
+    movement instead of just an aggregate rate."""
+    totals = Counter()
+    for r in calls:
+        for code in r["issue_codes"]:
+            totals[code] += 1
+    top = [code for code, _ in totals.most_common(top_n)]
+    daily = defaultdict(lambda: {code: 0 for code in top})
+    for r in calls:
+        d = day_key(r)
+        for code in r["issue_codes"]:
+            if code in daily[d]:
+                daily[d][code] += 1
+    days = sorted(daily)
+    return {
+        "codes": [{"code": c, "title": ISSUE_DEFS.get(c, {}).get("title", c)} for c in top],
+        "days": [{"day": d, "counts": [daily[d][c] for c in top]} for d in days],
+    }
+
+
 def compute_meta():
     if not CALLS:
         return {"total_calls": 0, "min_day": None, "max_day": None, "days_available": 0, "agents": []}
@@ -280,6 +302,9 @@ class handler(BaseHTTPRequestHandler):
             return
         if path == "/api/issues":
             self._send_json(compute_issues(filtered_calls(days_param, agent_param)))
+            return
+        if path == "/api/issues/trend":
+            self._send_json(compute_issue_trend(filtered_calls(days_param, agent_param)))
             return
         if path == "/api/themes":
             self._send_json(THEMES)

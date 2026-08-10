@@ -299,6 +299,34 @@ def compute_issues(calls):
     return issues
 
 
+def compute_issue_trend(calls, top_n=3):
+    """Day-by-day counts for the top N recurring issues (by total volume over the whole
+    window), so the trend chart can show which specific issues are driving the day-to-day
+    movement instead of just an aggregate rate."""
+    totals = Counter()
+    for r in calls:
+        if not has_call_detail(r):
+            continue
+        for i in call_issues(r):
+            totals[i["code"]] += 1
+    top = [code for code, _ in totals.most_common(top_n)]
+    titles = {}
+    daily = defaultdict(lambda: {code: 0 for code in top})
+    for r in calls:
+        if not has_call_detail(r):
+            continue
+        d = day_key(r)
+        for i in call_issues(r):
+            if i["code"] in daily[d]:
+                daily[d][i["code"]] += 1
+            titles.setdefault(i["code"], i["title"])
+    days = sorted(daily)
+    return {
+        "codes": [{"code": c, "title": titles.get(c, c)} for c in top],
+        "days": [{"day": d, "counts": [daily[d][c] for c in top]} for d in days],
+    }
+
+
 def compute_quadrants(calls):
     """How each audited call landed: customer satisfaction crossed with whether the agent
     itself was at fault, independent of any automated red-alert detector. Only counts calls
@@ -460,6 +488,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/issues":
             self._send_json(compute_issues(filtered_calls(days_param, agent_param)))
+            return
+        if path == "/api/issues/trend":
+            self._send_json(compute_issue_trend(filtered_calls(days_param, agent_param)))
             return
         if path == "/api/quadrants":
             self._send_json(compute_quadrants(filtered_calls(days_param, agent_param)))

@@ -88,7 +88,9 @@
 
   .chart-wrap { position: relative; overflow-x: auto; }
   .tooltip {
-    position: fixed; pointer-events: none; background: var(--text-primary); color: var(--page);
+    position: fixed; pointer-events: none;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--text-primary) 78%, var(--text-muted)), var(--text-primary));
+    color: var(--page);
     font-size: 12px; padding: 6px 9px; border-radius: 6px; line-height: 1.35; z-index: 50;
     opacity: 0; transition: opacity .08s ease; max-width: 240px;
   }
@@ -102,6 +104,8 @@
   .linechart-wrap .pt { fill: var(--status-critical); stroke: var(--surface-1); stroke-width: 2; }
   .linechart-wrap .pt-hit { fill: transparent; pointer-events: all; cursor: pointer; }
   .linechart-wrap .end-label { fill: var(--text-primary); font-size: 13px; font-weight: 700; }
+  .linechart-wrap .series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .linechart-wrap .series-dot { stroke: var(--surface-1); stroke-width: 2; }
   .vbar-labels { display: flex; gap: 10px; margin-top: 6px; }
   .vbar-labels span { flex: 1; text-align: center; font-size: 11px; color: var(--text-muted); min-width: 34px; }
 
@@ -232,8 +236,8 @@
   </div>
 
   <div class="section">
-    <div class="section-title">Red alert rate over time</div>
-    <div class="section-subtitle">Merged across every agent line and the full loaded range — hover a point for that day's totals</div>
+    <div class="section-title">Trend</div>
+    <div class="section-subtitle" id="trendSubtitle">Last 14 days, merged across every agent line — hover a point for that day's top issues</div>
     <div class="card">
       <div class="chart-wrap">
         <div class="linechart-wrap" id="trendChart"></div>
@@ -247,7 +251,7 @@
     <div class="section-subtitle">Top issues across every audited call we have detail for. Click an issue to open the call list, then click a call to hear it and read the transcript</div>
     <div class="card">
       <div class="group-toggle" id="groupToggle">
-        <span class="chip active" data-mode="lane">By lane</span>
+        <span class="chip active" data-mode="lane">By category</span>
         <span class="chip" data-mode="theme">By root cause</span>
       </div>
       <div id="issuesList"></div>
@@ -294,6 +298,10 @@
   function fmtDay(iso){
     var d = new Date(iso + 'T00:00:00Z');
     return d.toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short' });
+  }
+  function fmtDate(iso){
+    var d = new Date(iso + 'T00:00:00Z');
+    return d.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
   }
   function fmtDuration(sec){
     if (sec == null) return '—';
@@ -416,11 +424,15 @@
     loadData();
   }
 
-  function loadData(){
+  function currentQuery(){
     var params = [];
     if (state.days) params.push('days=' + state.days);
     if (state.agent) params.push('agent=' + encodeURIComponent(state.agent));
-    var q = params.length ? ('?' + params.join('&')) : '';
+    return params.length ? ('?' + params.join('&')) : '';
+  }
+
+  function loadData(){
+    var q = currentQuery();
     document.getElementById('refreshNote').textContent = 'Loading…';
     Promise.all([
       fetchJSON('/api/summary' + q),
@@ -444,8 +456,18 @@
         : (meta.agents.length > 1 ? ' · all agents: ' + meta.agents.map(humanizeAgent).join(', ') : ''));
 
     renderKPIs(summary, days);
-    renderTrendChart(days);
+    renderTrend();
     renderIssuesGrouped(issues);
+  }
+
+  function renderTrend(){
+    document.getElementById('trendChart').innerHTML = '<div class="section-subtitle">Loading…</div>';
+    fetchJSON('/api/issues/trend' + currentQuery()).then(function(data){
+      data.days = data.days.slice(-14);
+      renderTopIssueTrend(data);
+    }).catch(function(err){
+      document.getElementById('trendChart').innerHTML = '<div class="section-subtitle">Failed to load: ' + err.message + '</div>';
+    });
   }
 
   function renderKPIs(s, days){
@@ -466,62 +488,69 @@
       '<div class="stat-tile"><div class="stat-label">Escalation rate</div><div class="stat-value">' + s.escalation_rate + '%</div><div class="stat-delta">' + s.escalation_calls.toLocaleString() + ' calls asked for a human</div></div>';
   }
 
-  function renderTrendChart(days){
+  function renderTopIssueTrend(data){
     var wrap = document.getElementById('trendChart');
     var labelsEl = document.getElementById('trendLabels');
-    wrap.innerHTML = '';
-    labelsEl.innerHTML = '';
-    if (!days.length) return;
 
-    var n = days.length;
+    var days = data.days, codes = data.codes;
+    if (!days.length || !codes.length) {
+      wrap.innerHTML = '<div class="section-subtitle">No issue data in this range.</div>';
+      labelsEl.innerHTML = '';
+      return;
+    }
+
+    document.getElementById('trendSubtitle').textContent =
+      'Last 14 days · showing ' + codes[0].title + ' · hover a point for the top 3 issues that day';
+
     var VBW = 1000, VBH = 300, padTop = 24, padBottom = 8;
     var plotH = VBH - padTop - padBottom;
-    var maxRate = Math.max.apply(null, days.map(function(d){ return d.red_rate_of_total; }));
-    var maxY = Math.max(10, Math.min(100, Math.ceil((maxRate + 10) / 10) * 10));
+    var n = days.length;
+    var counts = days.map(function(d){ return d.counts[0]; });
+    var maxY = Math.max(5, Math.max.apply(null, counts));
 
     function xAt(i){ return (i + 0.5) / n * VBW; }
     function yAt(v){ return padTop + plotH - (v / maxY * plotH); }
-
-    var points = days.map(function(d, i){ return [xAt(i), yAt(d.red_rate_of_total)]; });
-    var linePath = points.map(function(p, i){ return (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
 
     var gridlines = [0, 0.5, 1].map(function(f){
       var y = padTop + plotH * (1 - f);
       var val = Math.round(maxY * f);
       return '<line class="gridline" x1="0" y1="' + y + '" x2="' + VBW + '" y2="' + y + '"></line>' +
-        '<text class="axis-label" x="4" y="' + (y - 5) + '">' + val + '%</text>';
+        '<text class="axis-label" x="4" y="' + (y - 5) + '">' + val + '</text>';
     }).join('');
 
-    var dots = points.map(function(p, i){
-      return '<circle class="pt-hit" data-i="' + i + '" cx="' + p[0] + '" cy="' + p[1] + '" r="16"></circle>' +
-        '<circle class="pt" cx="' + p[0] + '" cy="' + p[1] + '" r="4"></circle>';
+    var pts = counts.map(function(v, i){ return [xAt(i), yAt(v)]; });
+    var path = pts.map(function(p, i){ return (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
+    var dots = pts.map(function(p){ return '<circle class="series-dot" cx="' + p[0] + '" cy="' + p[1] + '" r="3" fill="var(--series-1)"></circle>'; }).join('');
+
+    var lastPt = pts[pts.length - 1];
+    var endLabelY = Math.max(padTop + 10, lastPt[1] - 12);
+    var endLabel = '<text class="end-label" x="' + (lastPt[0] - 8) + '" y="' + endLabelY + '" text-anchor="end">' + counts[counts.length - 1] + '</text>';
+
+    var slotW = VBW / n;
+    var hitCols = days.map(function(d, i){
+      return '<rect class="pt-hit" data-i="' + i + '" x="' + (xAt(i) - slotW / 2) + '" y="' + padTop + '" width="' + slotW + '" height="' + plotH + '" fill="transparent" style="cursor:pointer;"></rect>';
     }).join('');
 
-    var lastPoint = points[points.length - 1];
-    var lastVal = days[days.length - 1].red_rate_of_total;
-    var endLabelY = Math.max(padTop + 10, lastPoint[1] - 12);
-    var endLabel = '<text class="end-label" x="' + (lastPoint[0] - 8) + '" y="' + endLabelY + '" text-anchor="end">' + lastVal + '%</text>';
-
-    wrap.innerHTML =
-      '<svg viewBox="0 0 ' + VBW + ' ' + VBH + '" preserveAspectRatio="none">' +
-        gridlines +
-        '<path class="line" d="' + linePath + '"></path>' +
-        dots +
-        endLabel +
+    wrap.innerHTML = '<svg viewBox="0 0 ' + VBW + ' ' + VBH + '" preserveAspectRatio="none">' +
+      gridlines +
+      '<path class="series-line" d="' + path + '" style="stroke:var(--series-1)"></path>' +
+      dots + endLabel + hitCols +
       '</svg>';
 
     wrap.querySelectorAll('.pt-hit').forEach(function(el){
       var i = +el.getAttribute('data-i');
       var d = days[i];
       el.addEventListener('mousemove', function(e){
-        showTip(e, '<b>' + fmtDay(d.day) + '</b><br>' + d.total + ' calls · ' + d.red + ' red alert<br>' + d.red_rate_of_total + '% red alert rate');
+        var lines = codes.map(function(c, si){ return c.title + ': <b>' + d.counts[si] + '</b>'; }).join('<br>');
+        showTip(e, '<b>' + fmtDate(d.day) + '</b><br>' + lines);
       });
       el.addEventListener('mouseleave', hideTip);
     });
 
+    labelsEl.innerHTML = '';
     days.forEach(function(d){
       var lab = document.createElement('span');
-      lab.textContent = fmtDay(d.day).split(',')[0];
+      lab.textContent = fmtDate(d.day);
       labelsEl.appendChild(lab);
     });
   }
