@@ -236,8 +236,7 @@
   </div>
 
   <div class="section">
-    <div class="section-title">Trend</div>
-    <div class="section-subtitle" id="trendSubtitle"></div>
+    <div class="section-title">Top issue over time</div>
     <div class="card">
       <div class="chart-wrap">
         <div class="linechart-wrap" id="trendChart"></div>
@@ -247,7 +246,7 @@
   </div>
 
   <div class="section">
-    <div class="section-title">What's causing it</div>
+    <div class="section-title">Issue breakdown</div>
     <div class="card">
       <div class="group-toggle" id="groupToggle">
         <span class="chip active" data-mode="lane">By category</span>
@@ -498,8 +497,6 @@
       return;
     }
 
-    document.getElementById('trendSubtitle').textContent = codes[0].title;
-
     var VBW = 1000, VBH = 300, padTop = 24, padBottom = 8;
     var plotH = VBH - padTop - padBottom;
     var n = days.length;
@@ -520,10 +517,6 @@
     var path = pts.map(function(p, i){ return (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
     var dots = pts.map(function(p){ return '<circle class="series-dot" cx="' + p[0] + '" cy="' + p[1] + '" r="3" fill="var(--series-1)"></circle>'; }).join('');
 
-    var lastPt = pts[pts.length - 1];
-    var endLabelY = Math.max(padTop + 10, lastPt[1] - 12);
-    var endLabel = '<text class="end-label" x="' + (lastPt[0] - 8) + '" y="' + endLabelY + '" text-anchor="end">' + counts[counts.length - 1] + '</text>';
-
     var slotW = VBW / n;
     var hitCols = days.map(function(d, i){
       return '<rect class="pt-hit" data-i="' + i + '" x="' + (xAt(i) - slotW / 2) + '" y="' + padTop + '" width="' + slotW + '" height="' + plotH + '" fill="transparent" style="cursor:pointer;"></rect>';
@@ -532,7 +525,7 @@
     wrap.innerHTML = '<svg viewBox="0 0 ' + VBW + ' ' + VBH + '" preserveAspectRatio="none">' +
       gridlines +
       '<path class="series-line" d="' + path + '" style="stroke:var(--series-1)"></path>' +
-      dots + endLabel + hitCols +
+      dots + hitCols +
       '</svg>';
 
     wrap.querySelectorAll('.pt-hit').forEach(function(el){
