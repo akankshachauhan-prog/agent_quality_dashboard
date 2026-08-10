@@ -1,0 +1,29 @@
+# Raw fetched data - contains call transcripts, phone numbers, and other PII.
+# Stays local only. data/snapshot.json (built by build_snapshot.py) is the
+# privacy-stripped aggregate that actually gets committed and deployed.
+data/observability_calls_*.json
+data/red_alert_transcripts_*.json
+data/audited_clean_transcripts*.json
+data/legacy_week_transcripts*.json
+data/evals_calls_*.json
+data/issue_bucket_samples.json
+data/issue_rca.json
+
+# Generated local reports (xlsx workbooks) - not needed by the deployed app
+reports/
+
+# Secrets - never commit an API key
+.env
+.env.*
+!.env.example
+
+# Claude Code's local permission-approval log - it records the literal command lines it
+# was asked to approve, which end up containing the actual SUPERBRYN_API_KEY value whenever
+# a command like `SUPERBRYN_API_KEY=sbryn_... python3 ...` gets allowlisted. Never commit this.
+.claude/
+
+# Python / OS noise
+__pycache__/
+*.pyc
+.DS_Store
+.vercel

@@ -1,0 +1,800 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SuperBryn Call Quality Dashboard</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --success-text:   #006300;
+
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+
+    --status-good:     #0ca30c;
+    --status-warning:  #fab219;
+    --status-serious:  #ec835a;
+    --status-critical: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page:           #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --success-text:   #0ca30c;
+      --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: var(--page); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text-primary); }
+  .root { max-width: 1180px; margin: 0 auto; padding: 28px 20px 70px; }
+
+  header.dash-head { margin-bottom: 16px; }
+  header.dash-head h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+  header.dash-head .sub { font-size: 13px; color: var(--text-secondary); }
+  header.dash-head .sub b { color: var(--text-primary); font-weight: 600; }
+
+  /* Filter bar */
+  .filter-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 14px; margin-bottom: 32px; font-size: 13px;
+  }
+  .filter-bar .label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-right: 2px; }
+  .chip {
+    border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px;
+    color: var(--text-secondary); background: transparent; cursor: pointer; font: inherit;
+  }
+  .chip:hover:not(.disabled) { border-color: var(--series-1); }
+  .chip.active { color: var(--text-primary); font-weight: 600; border-color: var(--series-1); background: color-mix(in srgb, var(--series-1) 12%, transparent); }
+  .chip.disabled { opacity: .45; cursor: not-allowed; }
+  .filter-bar .spacer { flex: 1; }
+  .filter-bar .refresh { color: var(--text-muted); font-size: 12px; }
+
+  /* Sections */
+  .section { margin-bottom: 40px; }
+  .section + .section { padding-top: 32px; border-top: 1px solid var(--border); }
+  .section-title { font-size: 17px; font-weight: 700; margin: 0 0 4px; }
+  .section-subtitle { font-size: 13px; color: var(--text-secondary); margin: 0 0 16px; }
+
+  .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .stat-tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px 16px 14px; }
+  .stat-tile.critical { border-color: color-mix(in srgb, var(--status-critical) 40%, var(--border)); }
+  .stat-tile .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 6px; }
+  .stat-tile .stat-value { font-size: 26px; font-weight: 700; line-height: 1.1; }
+  .stat-tile .stat-value.critical { color: var(--status-critical); }
+  .stat-tile .stat-delta { font-size: 12px; margin-top: 6px; color: var(--text-secondary); }
+  .stat-tile .stat-delta .up-bad { color: var(--status-critical); font-weight: 600; }
+  .stat-tile .stat-delta .down-good { color: var(--success-text); font-weight: 600; }
+
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px 16px 14px; }
+
+  .chart-wrap { position: relative; overflow-x: auto; }
+  .tooltip {
+    position: fixed; pointer-events: none; background: var(--text-primary); color: var(--page);
+    font-size: 12px; padding: 6px 9px; border-radius: 6px; line-height: 1.35; z-index: 50;
+    opacity: 0; transition: opacity .08s ease; max-width: 240px;
+  }
+  .tooltip.show { opacity: 1; }
+  .tooltip b { font-weight: 700; }
+
+  .linechart-wrap svg { display: block; width: 100%; height: 190px; overflow: visible; }
+  .linechart-wrap .gridline { stroke: var(--grid); stroke-width: 1; }
+  .linechart-wrap .axis-label { fill: var(--text-muted); font-size: 11px; }
+  .linechart-wrap .line { fill: none; stroke: var(--status-critical); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .linechart-wrap .pt { fill: var(--status-critical); stroke: var(--surface-1); stroke-width: 2; }
+  .linechart-wrap .pt-hit { fill: transparent; pointer-events: all; cursor: pointer; }
+  .linechart-wrap .end-label { fill: var(--text-primary); font-size: 13px; font-weight: 700; }
+  .vbar-labels { display: flex; gap: 10px; margin-top: 6px; }
+  .vbar-labels span { flex: 1; text-align: center; font-size: 11px; color: var(--text-muted); min-width: 34px; }
+
+  .pct-pill { display: inline-block; min-width: 52px; padding: 3px 8px; border-radius: 999px; font-weight: 700; font-size: 12px; }
+  .pct-pill.good { background: color-mix(in srgb, var(--status-good) 18%, transparent); color: var(--success-text); }
+  .pct-pill.warning { background: color-mix(in srgb, var(--status-warning) 24%, transparent); color: color-mix(in srgb, var(--status-warning) 75%, var(--text-primary)); }
+  .pct-pill.serious { background: color-mix(in srgb, var(--status-serious) 22%, transparent); color: color-mix(in srgb, var(--status-serious) 80%, var(--text-primary)); }
+  .pct-pill.critical { background: color-mix(in srgb, var(--status-critical) 18%, transparent); color: var(--status-critical); }
+
+  .group-toggle { display: flex; gap: 6px; margin-bottom: 16px; }
+  .severity-pill { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 5px; text-transform: uppercase; letter-spacing: .02em; }
+  .severity-pill.error { background: color-mix(in srgb, var(--status-critical) 18%, transparent); color: var(--status-critical); }
+  .severity-pill.warning { background: color-mix(in srgb, var(--status-warning) 24%, transparent); color: color-mix(in srgb, var(--status-warning) 75%, var(--text-primary)); }
+
+  .issue-row { border-bottom: 1px solid var(--grid); padding: 9px 0; }
+  .issue-row:last-child { border-bottom: none; }
+  .issue-head { display: grid; grid-template-columns: 18px 1fr 1fr 44px; align-items: center; gap: 10px; font-size: 12.5px; cursor: pointer; user-select: none; }
+  .issue-head:hover .rank-label { color: var(--text-primary); }
+  .issue-head .chev { color: var(--text-muted); font-size: 13px; display: inline-block; }
+  .issue-head .lane-tag { font-size: 10px; color: var(--text-muted); margin-left: 6px; }
+  .issue-head .rank-label { color: var(--text-secondary); }
+  .issue-head .rank-track { background: var(--grid); border-radius: 4px; height: 14px; overflow: hidden; }
+  .issue-head .rank-fill { display: block; height: 100%; border-radius: 4px; background: var(--series-1); }
+  .issue-head .rank-val { text-align: right; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+  /* Waterfall accordion - lane/theme rows in "What's causing it", each expanding to its issues */
+  .acc-row { border-bottom: 1px solid var(--grid); }
+  .acc-row:last-child { border-bottom: none; }
+  .acc-row-head { display: flex; align-items: center; gap: 10px; padding: 10px 0; cursor: pointer; user-select: none; }
+  .acc-row-head .chev { color: var(--text-muted); font-size: 13px; display: inline-block; transition: transform .15s ease; flex: 0 0 10px; }
+  .acc-row-head.open .chev { transform: rotate(90deg); }
+  .acc-row-head .acc-title { flex: 1; font-size: 13px; font-weight: 600; }
+  .acc-row-head .acc-count { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+  .acc-detail { display: none; padding: 4px 0 18px 28px; }
+  .acc-detail.open { display: block; }
+
+  footer.dash-foot {
+    margin-top: 10px; font-size: 11.5px; color: var(--text-muted); display: flex;
+    justify-content: space-between; border-top: 1px solid var(--border); padding-top: 12px;
+  }
+
+  /* Call list drawer */
+  .drawer-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 90;
+    opacity: 0; pointer-events: none; transition: opacity .18s ease;
+  }
+  .drawer-overlay.open { opacity: 1; pointer-events: auto; }
+  .drawer {
+    position: fixed; top: 0; right: 0; height: 100%; width: 420px; max-width: 92vw;
+    background: var(--surface-1); box-shadow: -10px 0 28px rgba(0,0,0,0.18);
+    padding: 20px 20px 30px; overflow-y: auto; transform: translateX(100%); transition: transform .2s ease;
+  }
+  .drawer-overlay.open .drawer { transform: translateX(0); }
+  .drawer .close-btn { position: absolute; top: 14px; right: 16px; border: none; background: none; font-size: 20px; color: var(--text-muted); cursor: pointer; line-height: 1; }
+  .drawer h2 { font-size: 15px; margin: 0 0 4px; padding-right: 24px; }
+  .drawer .drawer-count { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
+  .drawer-rca { margin: 12px 0 16px; }
+  .drawer-rca .block-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); margin: 0 0 8px; }
+  .drawer-call-row {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px;
+    font-size: 12.5px; cursor: pointer; color: var(--text-secondary);
+  }
+  .drawer-call-row:hover { border-color: var(--series-1); color: var(--text-primary); }
+  .drawer-call-row .when { flex: 1; font-variant-numeric: tabular-nums; }
+  .drawer-call-row .dur { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .drawer-load-more {
+    display: block; width: 100%; margin-top: 8px; padding: 8px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--page); color: var(--text-secondary);
+    font-size: 12.5px; cursor: pointer;
+  }
+  .drawer-load-more:hover { border-color: var(--series-1); color: var(--text-primary); }
+
+  /* Call detail modal */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none;
+    align-items: center; justify-content: center; z-index: 100; padding: 24px;
+  }
+  .overlay.open { display: flex; }
+  .modal {
+    background: var(--surface-1); border-radius: 12px; max-width: 720px; width: 100%;
+    max-height: 85vh; overflow-y: auto; padding: 20px 22px; position: relative;
+  }
+  .modal .close-btn {
+    position: absolute; top: 14px; right: 16px; border: none; background: none; font-size: 20px;
+    color: var(--text-muted); cursor: pointer; line-height: 1;
+  }
+  .modal h2 { font-size: 16px; margin: 0 0 4px; }
+  .modal .meta { font-size: 12px; color: var(--text-secondary); margin-bottom: 14px; }
+  .modal audio { width: 100%; margin-bottom: 14px; }
+  .modal .block-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); margin: 16px 0 8px; }
+  .audit-box { background: var(--page); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
+  .audit-box b { color: var(--text-primary); }
+  .turn { display: flex; gap: 8px; margin-bottom: 8px; font-size: 12.5px; }
+  .turn .who { flex: 0 0 64px; font-weight: 700; font-size: 11px; text-transform: uppercase; color: var(--text-muted); padding-top: 2px; }
+  .turn.agent .who { color: var(--series-1); }
+  .turn.customer .who { color: var(--series-2); }
+  .turn .text { flex: 1; color: var(--text-secondary); }
+  .modal-loading, .modal-error { font-size: 13px; color: var(--text-muted); padding: 20px 0; }
+  .modal-error { color: var(--status-critical); }
+
+  @media (max-width: 900px) {
+    .kpi-grid { grid-template-columns: 1fr; }
+    .issue-head { grid-template-columns: 18px 1fr 60px; }
+    .issue-head .rank-track { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="root">
+  <header class="dash-head">
+    <h1>SuperBryn Call Quality Dashboard</h1>
+    <div class="sub" id="headSub">Loading…</div>
+  </header>
+
+  <div class="filter-bar">
+    <span class="label">Range</span>
+    <span id="rangeChips"></span>
+    <span class="sep" id="agentSep" style="display:none; width:1px; height:18px; background:var(--border); margin:0 4px;"></span>
+    <span class="label" id="agentLabel" style="display:none;">Agent</span>
+    <span id="agentChips"></span>
+    <div class="spacer"></div>
+    <span class="refresh" id="refreshNote"></span>
+  </div>
+
+  <div class="section">
+    <div class="kpi-grid" id="kpiGrid"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Red alert rate over time</div>
+    <div class="section-subtitle">Merged across every agent line and the full loaded range — hover a point for that day's totals</div>
+    <div class="card">
+      <div class="chart-wrap">
+        <div class="linechart-wrap" id="trendChart"></div>
+      </div>
+      <div class="vbar-labels" id="trendLabels"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">What's causing it</div>
+    <div class="section-subtitle">Top issues across every audited call we have detail for. Click an issue to open the call list, then click a call to hear it and read the transcript</div>
+    <div class="card">
+      <div class="group-toggle" id="groupToggle">
+        <span class="chip active" data-mode="lane">By lane</span>
+        <span class="chip" data-mode="theme">By root cause</span>
+      </div>
+      <div id="issuesList"></div>
+    </div>
+  </div>
+
+  <footer class="dash-foot">
+    <span>Source: SuperBryn Observability API</span>
+    <span>Red Alert = a call a human confirmed had a real problem (audit verdict TP or FN)</span>
+  </footer>
+</div>
+
+<div class="tooltip" id="tip"></div>
+
+<div class="drawer-overlay" id="drawerOverlay">
+  <div class="drawer">
+    <button class="close-btn" id="closeDrawer">&times;</button>
+    <h2 id="drawerTitle"></h2>
+    <div class="drawer-count" id="drawerCount"></div>
+    <div id="drawerRca"></div>
+    <div id="drawerCalls"></div>
+    <button class="drawer-load-more" id="drawerLoadMore" style="display:none;"></button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="modal">
+    <button class="close-btn" id="closeModal">&times;</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var tip = document.getElementById('tip');
+  function showTip(e, html){
+    tip.innerHTML = html;
+    tip.style.left = (e.clientX + 14) + 'px';
+    tip.style.top = (e.clientY + 14) + 'px';
+    tip.classList.add('show');
+  }
+  function hideTip(){ tip.classList.remove('show'); }
+
+  function fmtDay(iso){
+    var d = new Date(iso + 'T00:00:00Z');
+    return d.toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short' });
+  }
+  function fmtDuration(sec){
+    if (sec == null) return '—';
+    var m = Math.floor(sec / 60), s = sec % 60;
+    return m + 'm ' + s + 's';
+  }
+  function fmtMs(ms){
+    var s = Math.floor(ms / 1000);
+    var m = Math.floor(s / 60);
+    s = s % 60;
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  var LANE_LABELS = {
+    audio_technical: 'Audio / technical',
+    user_behaviour: 'User behaviour',
+    agent_performance: 'Agent performance',
+    tool_execution: 'Tool execution'
+  };
+  var LANE_ORDER = ['agent_performance', 'user_behaviour', 'tool_execution', 'audio_technical'];
+  var TOP_N_ISSUES = 10;
+  var RANGE_CHIPS = [
+    { n: 3, label: 'Last 3 days' },
+    { n: 7, label: 'Last 7 days' },
+    { n: null, label: 'All loaded' }
+  ];
+  var PRIORITY_CLASS = { High: 'critical', Medium: 'warning', Low: 'good' };
+
+  function humanizeAgent(key){
+    return key.replace(/_/g, ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+  }
+
+  var state = { days: null, agent: null };
+  var meta = null;
+  var lastIssues = [];
+  var THEMES_DATA = [];
+  var CODE_THEMES = {};
+  var groupState = { mode: 'lane' };
+
+  function fetchJSON(url){
+    return fetch(url).then(function(r){
+      if (!r.ok) throw new Error('Request failed: ' + r.status);
+      return r.json();
+    });
+  }
+
+  fetchJSON('/api/meta').then(function(m){
+    meta = m;
+    buildRangeChips();
+    buildAgentChips();
+    loadData();
+  }).catch(function(err){
+    document.getElementById('headSub').textContent = 'Failed to load: ' + err.message;
+  });
+
+  fetchJSON('/api/themes').then(function(themes){
+    THEMES_DATA = themes;
+    CODE_THEMES = {};
+    themes.forEach(function(t){
+      t.issue_codes.forEach(function(code){
+        (CODE_THEMES[code] = CODE_THEMES[code] || []).push(t);
+      });
+    });
+    if (lastIssues.length) renderIssuesGrouped(lastIssues);
+  }).catch(function(){});
+
+  document.querySelectorAll('#groupToggle .chip').forEach(function(el){
+    el.addEventListener('click', function(){
+      document.querySelectorAll('#groupToggle .chip').forEach(function(c){ c.classList.remove('active'); });
+      el.classList.add('active');
+      groupState.mode = el.getAttribute('data-mode');
+      renderIssuesGrouped(lastIssues);
+    });
+  });
+
+  function buildAgentChips(){
+    if (meta.agents.length < 2) return;
+    document.getElementById('agentSep').style.display = 'inline-block';
+    document.getElementById('agentLabel').style.display = 'inline';
+    var bar = document.getElementById('agentChips');
+    bar.innerHTML = '';
+    var opts = [{ key: null, label: 'All agents' }].concat(
+      meta.agents.map(function(a){ return { key: a, label: humanizeAgent(a) }; })
+    );
+    opts.forEach(function(opt){
+      var chip = document.createElement('span');
+      chip.className = 'chip' + (opt.key === state.agent ? ' active' : '');
+      chip.textContent = opt.label;
+      chip.addEventListener('click', function(){ setAgent(opt.key); });
+      bar.appendChild(chip);
+    });
+  }
+
+  function setAgent(a){
+    state.agent = a;
+    buildAgentChips();
+    loadData();
+  }
+
+  function buildRangeChips(){
+    var bar = document.getElementById('rangeChips');
+    bar.innerHTML = '';
+    RANGE_CHIPS.forEach(function(opt){
+      var enabled = opt.n === null || opt.n <= meta.days_available;
+      var chip = document.createElement('span');
+      chip.className = 'chip' + (enabled ? '' : ' disabled') + (opt.n === state.days ? ' active' : '');
+      chip.textContent = opt.label;
+      if (!enabled) {
+        chip.title = 'Only ' + meta.days_available + ' day(s) loaded — fetch more history with fetch_superbryn_calls.py first';
+      } else {
+        chip.addEventListener('click', function(){ setRange(opt.n); });
+      }
+      bar.appendChild(chip);
+    });
+  }
+
+  function setRange(n){
+    state.days = n;
+    buildRangeChips();
+    loadData();
+  }
+
+  function loadData(){
+    var params = [];
+    if (state.days) params.push('days=' + state.days);
+    if (state.agent) params.push('agent=' + encodeURIComponent(state.agent));
+    var q = params.length ? ('?' + params.join('&')) : '';
+    document.getElementById('refreshNote').textContent = 'Loading…';
+    Promise.all([
+      fetchJSON('/api/summary' + q),
+      fetchJSON('/api/days' + q),
+      fetchJSON('/api/issues' + q)
+    ]).then(function(results){
+      renderAll(results[0], results[1], results[2]);
+      document.getElementById('refreshNote').textContent = 'Updated just now';
+    }).catch(function(err){
+      document.getElementById('headSub').textContent = 'Failed to load data: ' + err.message;
+    });
+  }
+
+  function renderAll(summary, days, issues){
+    lastIssues = issues;
+
+    var range = days.length ? (fmtDay(days[0].day) + ' – ' + fmtDay(days[days.length-1].day)) : '';
+    document.getElementById('headSub').innerHTML =
+      range + ' · <b>' + summary.total_calls.toLocaleString() + '</b> calls' +
+      (state.agent ? ' · ' + humanizeAgent(state.agent)
+        : (meta.agents.length > 1 ? ' · all agents: ' + meta.agents.map(humanizeAgent).join(', ') : ''));
+
+    renderKPIs(summary, days);
+    renderTrendChart(days);
+    renderIssuesGrouped(issues);
+  }
+
+  function renderKPIs(s, days){
+    var deltaHtml = '';
+    if (days.length >= 2) {
+      var first = days[0], last = days[days.length - 1];
+      var delta = last.red_rate_of_total - first.red_rate_of_total;
+      if (Math.abs(delta) >= 1) {
+        var rising = delta > 0;
+        deltaHtml = ' · <span class="' + (rising ? 'up-bad' : 'down-good') + '">' + (rising ? '↑' : '↓') +
+          ' from ' + first.red_rate_of_total + '% (' + fmtDay(first.day).split(',')[0] + ')</span>';
+      }
+    }
+    var grid = document.getElementById('kpiGrid');
+    grid.innerHTML =
+      '<div class="stat-tile"><div class="stat-label">Total calls</div><div class="stat-value">' + s.total_calls.toLocaleString() + '</div></div>' +
+      '<div class="stat-tile critical"><div class="stat-label">Red alerts</div><div class="stat-value critical">' + s.red_alerts.toLocaleString() + '</div><div class="stat-delta">' + s.red_rate_of_total + '% of all calls' + deltaHtml + '</div></div>' +
+      '<div class="stat-tile"><div class="stat-label">Escalation rate</div><div class="stat-value">' + s.escalation_rate + '%</div><div class="stat-delta">' + s.escalation_calls.toLocaleString() + ' calls asked for a human</div></div>';
+  }
+
+  function renderTrendChart(days){
+    var wrap = document.getElementById('trendChart');
+    var labelsEl = document.getElementById('trendLabels');
+    wrap.innerHTML = '';
+    labelsEl.innerHTML = '';
+    if (!days.length) return;
+
+    var n = days.length;
+    var VBW = 1000, VBH = 300, padTop = 24, padBottom = 8;
+    var plotH = VBH - padTop - padBottom;
+    var maxRate = Math.max.apply(null, days.map(function(d){ return d.red_rate_of_total; }));
+    var maxY = Math.max(10, Math.min(100, Math.ceil((maxRate + 10) / 10) * 10));
+
+    function xAt(i){ return (i + 0.5) / n * VBW; }
+    function yAt(v){ return padTop + plotH - (v / maxY * plotH); }
+
+    var points = days.map(function(d, i){ return [xAt(i), yAt(d.red_rate_of_total)]; });
+    var linePath = points.map(function(p, i){ return (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
+
+    var gridlines = [0, 0.5, 1].map(function(f){
+      var y = padTop + plotH * (1 - f);
+      var val = Math.round(maxY * f);
+      return '<line class="gridline" x1="0" y1="' + y + '" x2="' + VBW + '" y2="' + y + '"></line>' +
+        '<text class="axis-label" x="4" y="' + (y - 5) + '">' + val + '%</text>';
+    }).join('');
+
+    var dots = points.map(function(p, i){
+      return '<circle class="pt-hit" data-i="' + i + '" cx="' + p[0] + '" cy="' + p[1] + '" r="16"></circle>' +
+        '<circle class="pt" cx="' + p[0] + '" cy="' + p[1] + '" r="4"></circle>';
+    }).join('');
+
+    var lastPoint = points[points.length - 1];
+    var lastVal = days[days.length - 1].red_rate_of_total;
+    var endLabelY = Math.max(padTop + 10, lastPoint[1] - 12);
+    var endLabel = '<text class="end-label" x="' + (lastPoint[0] - 8) + '" y="' + endLabelY + '" text-anchor="end">' + lastVal + '%</text>';
+
+    wrap.innerHTML =
+      '<svg viewBox="0 0 ' + VBW + ' ' + VBH + '" preserveAspectRatio="none">' +
+        gridlines +
+        '<path class="line" d="' + linePath + '"></path>' +
+        dots +
+        endLabel +
+      '</svg>';
+
+    wrap.querySelectorAll('.pt-hit').forEach(function(el){
+      var i = +el.getAttribute('data-i');
+      var d = days[i];
+      el.addEventListener('mousemove', function(e){
+        showTip(e, '<b>' + fmtDay(d.day) + '</b><br>' + d.total + ' calls · ' + d.red + ' red alert<br>' + d.red_rate_of_total + '% red alert rate');
+      });
+      el.addEventListener('mouseleave', hideTip);
+    });
+
+    days.forEach(function(d){
+      var lab = document.createElement('span');
+      lab.textContent = fmtDay(d.day).split(',')[0];
+      labelsEl.appendChild(lab);
+    });
+  }
+
+  function themesForCode(code){
+    return CODE_THEMES[code] || [];
+  }
+
+  // Waterfall: each group (lane or theme) is a collapsible row; expanding it reveals the
+  // issues inside. Replaces a horizontal tab bar, which wrapped into an ugly multi-row
+  // button grid once there were 8-9 groups.
+  function renderIssuesGrouped(issues){
+    var list = document.getElementById('issuesList');
+    list.innerHTML = '';
+
+    if (groupState.mode === 'theme') {
+      if (!THEMES_DATA.length) { list.innerHTML = '<div class="section-subtitle">Loading…</div>'; return; }
+      var matches = THEMES_DATA.map(function(t){
+        return { t: t, matched: issues.filter(function(i){ return t.issue_codes.indexOf(i.code) !== -1; }) };
+      });
+      var firstOpenIdx = matches.findIndex(function(m){ return m.matched.length; });
+      matches.forEach(function(m, i){
+        var t = m.t, matched = m.matched;
+        var contextHtml =
+          '<div class="audit-box" style="margin-bottom:12px;"><span class="pct-pill ' + (PRIORITY_CLASS[t.priority] || '') + '">' + t.priority + '</span> ' +
+          '<b>' + t.category + '.</b> ' + t.action + '</div>';
+        appendAccordionRow(list, t.short, matched.length, function(detailEl){
+          detailEl.insertAdjacentHTML('beforeend', contextHtml);
+          renderIssueRowsInto(detailEl, matched, t.key);
+        }, i === firstOpenIdx);
+      });
+    } else {
+      var byLane = {};
+      LANE_ORDER.forEach(function(l){ byLane[l] = []; });
+      issues.forEach(function(i){ (byLane[i.lane] || (byLane[i.lane] = [])).push(i); });
+      var firstOpenLaneIdx = LANE_ORDER.findIndex(function(l){ return (byLane[l] || []).length; });
+      LANE_ORDER.forEach(function(l, i){
+        var matched = byLane[l] || [];
+        appendAccordionRow(list, LANE_LABELS[l] || l, matched.length, function(detailEl){
+          renderIssueRowsInto(detailEl, matched, null);
+        }, i === firstOpenLaneIdx);
+      });
+    }
+  }
+
+  function appendAccordionRow(list, title, count, renderDetail, openByDefault){
+    var row = document.createElement('div');
+    row.className = 'acc-row';
+
+    var head = document.createElement('div');
+    head.className = 'acc-row-head';
+    head.innerHTML =
+      '<span class="chev">›</span>' +
+      '<span class="acc-title">' + title + '</span>' +
+      '<span class="acc-count">' + count + ' issue' + (count === 1 ? '' : 's') + '</span>';
+
+    var detail = document.createElement('div');
+    detail.className = 'acc-detail';
+    var built = false;
+
+    function toggle(open){
+      detail.classList.toggle('open', open);
+      head.classList.toggle('open', open);
+      if (open && !built) { renderDetail(detail); built = true; }
+    }
+
+    head.addEventListener('click', function(){ toggle(!detail.classList.contains('open')); });
+
+    row.appendChild(head);
+    row.appendChild(detail);
+    list.appendChild(row);
+
+    if (openByDefault) toggle(true);
+  }
+
+  function renderIssueRowsInto(container, issues, activeThemeKey){
+    if (!issues.length) {
+      container.insertAdjacentHTML('beforeend', '<div class="section-subtitle">No issues in this group for this range.</div>');
+      return;
+    }
+    var sorted = issues.slice().sort(function(a, b){ return b.count - a.count; }).slice(0, TOP_N_ISSUES);
+    var maxC = sorted[0].count;
+    sorted.forEach(function(issue){
+      var row = document.createElement('div');
+      row.className = 'issue-row';
+
+      var head = document.createElement('div');
+      head.className = 'issue-head';
+      var pct = (issue.count / maxC * 100).toFixed(1);
+      var sevClass = issue.severity === 'error' ? 'error' : 'warning';
+      var sevIcon = sevClass === 'error' ? '✕' : '▲';
+      head.innerHTML =
+        '<span class="chev">›</span>' +
+        '<span class="rank-label">' + issue.title +
+          ' <span class="severity-pill ' + sevClass + '">' + sevIcon + ' ' + (issue.severity || '').toUpperCase() + '</span>' +
+          '<span class="lane-tag">' + issue.pct_of_audited + '% of audited</span>' +
+        '</span>' +
+        '<span class="rank-track"><span class="rank-fill" style="width:' + pct + '%"></span></span>' +
+        '<span class="rank-val">' + issue.count + '</span>';
+
+      head.addEventListener('click', function(){
+        openDrawer({ title: issue.title, subtitleHtml: '<div class="lane-tag" style="margin-left:0;margin-top:4px;">' + (LANE_LABELS[issue.lane] || issue.lane) + '</div>', call_ids: issue.call_ids, bucketThemes: themesForCode(issue.code) });
+      });
+
+      row.appendChild(head);
+
+      // Shared-cause note: this issue's full count also gets counted under any other theme
+      // it's tagged to (root causes were assigned by reading a sample of calls, not tagging
+      // every one of them individually - the split between themes for the same code isn't known).
+      if (activeThemeKey) {
+        var others = themesForCode(issue.code).filter(function(t){ return t.key !== activeThemeKey; });
+        if (others.length) {
+          var note = document.createElement('div');
+          note.style.cssText = 'font-size:11px;color:var(--text-muted);padding:2px 0 0 28px;';
+          note.textContent = 'Same ' + issue.count + ' calls also counted under: ' + others.map(function(t){ return t.short; }).join(', ');
+          row.appendChild(note);
+        }
+      }
+
+      container.appendChild(row);
+    });
+  }
+
+  // ---- Call list drawer ----
+  var drawerOverlay = document.getElementById('drawerOverlay');
+  var drawerCalls = document.getElementById('drawerCalls');
+  var drawerRca = document.getElementById('drawerRca');
+  var drawerLoadMore = document.getElementById('drawerLoadMore');
+  var drawerState = { descriptor: null, shown: 0, batch: 25 };
+
+  function renderDrawerBuckets(themes){
+    drawerRca.innerHTML = '';
+    if (!themes || !themes.length) return;
+    drawerRca.innerHTML =
+      '<div class="drawer-rca"><div class="block-title">Root-cause bucket</div>' +
+      themes.map(function(t){
+        return '<span class="pct-pill ' + (PRIORITY_CLASS[t.priority] || '') + '" style="min-width:auto;margin:0 6px 6px 0;">' + t.short + '</span>';
+      }).join('') +
+      '</div>';
+  }
+
+  document.getElementById('closeDrawer').addEventListener('click', closeDrawer);
+  drawerOverlay.addEventListener('click', function(e){ if (e.target === drawerOverlay) closeDrawer(); });
+  drawerLoadMore.addEventListener('click', loadMoreDrawerCalls);
+
+  function closeDrawer(){ drawerOverlay.classList.remove('open'); }
+
+  function openDrawer(descriptor){
+    drawerState.descriptor = descriptor;
+    drawerState.shown = 0;
+    document.getElementById('drawerTitle').innerHTML = descriptor.title + (descriptor.subtitleHtml || '');
+    document.getElementById('drawerCount').textContent = descriptor.call_ids.length.toLocaleString() + ' calls';
+    drawerCalls.innerHTML = '';
+    drawerRca.innerHTML = '';
+    drawerLoadMore.style.display = 'none';
+    loadMoreDrawerCalls();
+    renderDrawerBuckets(descriptor.bucketThemes);
+    drawerOverlay.classList.add('open');
+  }
+
+  function loadMoreDrawerCalls(){
+    var descriptor = drawerState.descriptor;
+    if (!descriptor) return;
+    var nextIds = descriptor.call_ids.slice(drawerState.shown, drawerState.shown + drawerState.batch);
+    if (!nextIds.length) return;
+    drawerLoadMore.textContent = 'Loading…';
+    fetchJSON('/api/calls?ids=' + nextIds.join(','))
+      .then(function(calls){
+        calls.forEach(function(c){
+          var when = new Date(c.started_at).toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+          var row = document.createElement('div');
+          row.className = 'drawer-call-row';
+          row.innerHTML =
+            '<span class="when">' + when + (!state.agent && meta.agents.length > 1 ? ' · ' + humanizeAgent(c.agent) : '') + '</span>' +
+            '<span class="dur">' + fmtDuration(c.duration_seconds) + '</span>';
+          row.addEventListener('click', function(){ openCallModal(c.id); });
+          drawerCalls.appendChild(row);
+        });
+        drawerState.shown += calls.length;
+        if (drawerState.shown >= descriptor.call_ids.length) {
+          drawerLoadMore.style.display = 'none';
+        } else {
+          drawerLoadMore.style.display = 'block';
+          drawerLoadMore.textContent = 'Load 25 more (' + (descriptor.call_ids.length - drawerState.shown) + ' remaining)';
+        }
+      })
+      .catch(function(err){
+        drawerLoadMore.style.display = 'none';
+        var errRow = document.createElement('div');
+        errRow.className = 'section-subtitle';
+        errRow.textContent = 'Failed to load calls: ' + err.message;
+        drawerCalls.appendChild(errRow);
+      });
+  }
+
+  // ---- Call detail modal ----
+  var overlay = document.getElementById('overlay');
+  var modalBody = document.getElementById('modalBody');
+  document.getElementById('closeModal').addEventListener('click', closeModal);
+  overlay.addEventListener('click', function(e){ if (e.target === overlay) closeModal(); });
+
+  function closeModal(){ overlay.classList.remove('open'); modalBody.innerHTML = ''; }
+
+  function openCallModal(callId){
+    overlay.classList.add('open');
+    modalBody.innerHTML = '<div class="modal-loading">Loading call…</div>';
+    fetchJSON('/api/calls/' + callId)
+      .then(renderCallModal)
+      .catch(function(err){
+        modalBody.innerHTML = '<div class="modal-error">Failed to load call: ' + err.message + '</div>';
+      });
+  }
+
+  function callIssues(c){
+    if (c.analysis_issues && c.analysis_issues.length) return c.analysis_issues;
+    return (c.metric_evaluations || []).filter(function(e){ return e.result === 'flagged'; });
+  }
+
+  function renderCallModal(c){
+    var when = new Date(c.started_at).toLocaleString();
+    var html = '';
+    html += '<h2>Call ' + c.id.slice(0, 8) + '…</h2>';
+    html += '<div class="meta">' + when + ' · ' + fmtDuration(c.duration_seconds) +
+      ' · $' + (c.cost_usd != null ? c.cost_usd.toFixed(4) : '—') +
+      ' · ended: ' + (c.end_reason || '—') + '</div>';
+
+    if (c.has_recording) {
+      html += '<audio controls preload="none" src="/api/calls/' + c.id + '/audio"></audio>';
+    }
+
+    if (c.audit && c.audit.user_intent) {
+      var ui = c.audit.user_intent;
+      html += '<div class="block-title">Audit summary</div>';
+      html += '<div class="audit-box">';
+      if (ui.user_intent) html += '<div><b>Intent:</b> ' + ui.user_intent + '</div>';
+      if (ui.reason) html += '<div style="margin-top:6px;">' + ui.reason + '</div>';
+      html += '<div style="margin-top:6px;"><b>Satisfied:</b> ' + ui.satisfaction + ' · <b>Valid intent:</b> ' + ui.valid_intent + '</div>';
+      html += '</div>';
+    }
+
+    var issues = callIssues(c);
+    if (issues.length) {
+      html += '<div class="block-title">Flagged issues (' + issues.length + ')</div>';
+      html += '<div class="audit-box">';
+      html += issues.map(function(i){
+        return '<div style="margin-bottom:8px;"><b>' + i.title + '</b> — ' + (i.evidence || '') + '</div>';
+      }).join('');
+      html += '</div>';
+    }
+
+    if (c.metrics) {
+      var m = c.metrics, sil = c.silence || {};
+      html += '<div class="block-title">Call metrics</div>';
+      html += '<div class="audit-box">' +
+        '<div>Agent response latency: <b>' + Math.round(m.avg_assistant_latency_ms) + 'ms</b> avg · ' +
+        'Agent pace: <b>' + Math.round(m.assistant_words_per_minute) + ' WPM</b> · ' +
+        'STT confidence: <b>' + Math.round(m.avg_assistant_confidence * 100) + '%</b></div>' +
+        (sil.dead_air_total_ms ? '<div style="margin-top:6px;">Dead air: <b>' + Math.round(sil.dead_air_total_ms / 1000) + 's</b> (' + sil.dead_air_pct + '% of call, longest gap ' + Math.round(sil.dead_air_max_ms / 1000) + 's)</div>' : '') +
+        '</div>';
+    }
+
+    if (c.transcript && c.transcript.length) {
+      html += '<div class="block-title">Transcript</div>';
+      html += c.transcript.map(function(t){
+        return '<div class="turn ' + t.speaker + '">' +
+          '<div class="who">' + t.speaker + '<br>' + fmtMs(t.start_ms) + '</div>' +
+          '<div class="text">' + t.text + '</div></div>';
+      }).join('');
+    }
+
+    modalBody.innerHTML = html;
+  }
+})();
+</script>
+</body>
+</html>

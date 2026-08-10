@@ -1,0 +1,237 @@
+{
+  "themes": [
+    {
+      "key": "NONHUMAN",
+      "short": "Non-human pickup mishandled",
+      "name": "Non-human pickup mishandled (voicemail / IVR / carrier announcement / screening bot)",
+      "category": "Detection & routing fix",
+      "action": "Add an answering-machine/IVR/screener classifier that runs before the conversational flow starts. Branch to a dedicated short flow per pickup type (leave one concise VM message and hang up; answer a screener's questions then stop; disengage immediately from a robocall/hold-queue) instead of running the live-call script. Suppress WPM/latency/WER/greeting/call-flow flags on calls classified this way - those metrics don't mean anything against a machine.",
+      "owner": "Eng - Voice platform / call routing",
+      "priority": "High",
+      "issue_codes": [
+        "call_flow_not_followed",
+        "high_response_latency",
+        "high_word_error_rate",
+        "ivr_detected",
+        "not_responding",
+        "opening_greeting_missing",
+        "speaking_pace_too_fast",
+        "user_not_available",
+        "voicemail_detected",
+        "wrong_number"
+      ],
+      "red_alert_calls": 1643
+    },
+    {
+      "key": "OPENERTRIGGER",
+      "short": "Opener doesn't fire when callee speaks first",
+      "name": "Scripted opener doesn't fire when the callee speaks first",
+      "category": "Agent script/logic fix",
+      "action": "Redesign the opening turn so the agent always leads with greeting + self-ID regardless of what the callee says first (e.g. 'Speaking.', 'Hello?', 'Is this X?'). Treat a bare acknowledgment as a cue to proceed into the full greeting, not as a completed exchange.",
+      "owner": "Eng - Conversation design",
+      "priority": "High",
+      "issue_codes": [
+        "agent_silence",
+        "call_flow_not_followed",
+        "high_response_latency",
+        "opening_greeting_missing"
+      ],
+      "red_alert_calls": 627
+    },
+    {
+      "key": "EXITLOGIC",
+      "short": "No graceful exit on rejection signals",
+      "name": "Missing graceful-exit branch on a clear negative/terminal signal",
+      "category": "Agent script/logic fix",
+      "action": "Add explicit intent classifiers for rejection / already-purchased / wrong-person / unavailable / off-scope-request that short-circuit straight to a one-line close-out and call termination, instead of falling through to the default script tree or re-asking the same question.",
+      "owner": "Eng - Conversation design",
+      "priority": "High",
+      "issue_codes": [
+        "already_addressed",
+        "call_flow_not_followed",
+        "irrelevant_intent",
+        "user_not_available",
+        "wrong_number"
+      ],
+      "red_alert_calls": 396
+    },
+    {
+      "key": "LISTDATA",
+      "short": "Stale CRM / dial-list data",
+      "name": "Stale or incorrect CRM / dial-list data",
+      "category": "CRM data feedback loop",
+      "action": "Feed call verdicts back into the dialer/CRM automatically: when a call resolves as wrong_number, already_addressed, or an explicit do-not-call request, auto-flag that contact/number so it's excluded from future campaigns. Today the agent sometimes promises removal in-call but the list isn't actually updated.",
+      "owner": "RevOps - list hygiene / CRM integration",
+      "priority": "High",
+      "issue_codes": [
+        "already_addressed",
+        "irrelevant_intent",
+        "not_interested",
+        "wrong_number"
+      ],
+      "red_alert_calls": 191
+    },
+    {
+      "key": "SCRIPTPACING",
+      "short": "Script crams too much into one turn",
+      "name": "Script crams multiple beats into one breath / one turn runs too long",
+      "category": "Agent script/logic fix",
+      "action": "Split compound opener and wrap-up lines (name-confirm + self-ID + dealership + purpose; or decline-ack + courtesy line) into shorter turns with a natural pause between beats.",
+      "owner": "Eng - Conversation design",
+      "priority": "Medium",
+      "issue_codes": [
+        "not_interested",
+        "opening_greeting_missing",
+        "speaking_pace_too_fast"
+      ],
+      "red_alert_calls": 642
+    },
+    {
+      "key": "DETECTORBUG",
+      "short": "Detector calibration false positives",
+      "name": "Detector/metric calibration false positive (the measurement is wrong, not the agent's behavior)",
+      "category": "Detector calibration fix",
+      "action": "Patch the scoring pipeline directly: exclude calls below a minimum transcript length from WER scoring, exclude digit-spelled-out utterances from WPM calculation, allowlist the agent's own mandatory disclosure phrase in IVR detection, and replace voicemail keyword-matching with a check for whether a complete message was actually left.",
+      "owner": "Eng - Audit/scoring pipeline",
+      "priority": "Medium",
+      "issue_codes": [
+        "high_word_error_rate",
+        "ivr_detected",
+        "speaking_pace_too_slow",
+        "voicemail_detected"
+      ],
+      "red_alert_calls": 586
+    },
+    {
+      "key": "LATENCYFILLER",
+      "short": "No filler phrase during tool latency",
+      "name": "Tool-call / lookup latency with no filler phrase to mask it",
+      "category": "Agent script/logic fix",
+      "action": "Insert a short spoken filler ('Let me check that for you, one moment') immediately before invoking any lookup/tool that can take multiple seconds, so the gap doesn't register as dead air or high latency.",
+      "owner": "Eng - Conversation design",
+      "priority": "Medium",
+      "issue_codes": [
+        "agent_silence",
+        "high_response_latency",
+        "speaking_pace_too_slow"
+      ],
+      "red_alert_calls": 309
+    },
+    {
+      "key": "AUDIOQUALITY",
+      "short": "Real audio/line quality issues",
+      "name": "Real audio/line quality issues (echo, crosstalk, dropped connection)",
+      "category": "Telephony infrastructure",
+      "action": "Not fixable in the agent's script - track separately as a carrier/line-quality metric (echo cancellation, jitter, disconnect rate) rather than folding it into agent-performance issue codes.",
+      "owner": "Eng - Telephony/infra",
+      "priority": "Low",
+      "issue_codes": [
+        "call_flow_not_followed",
+        "high_word_error_rate",
+        "not_responding",
+        "opening_greeting_missing"
+      ],
+      "red_alert_calls": 901
+    },
+    {
+      "key": "CUSTBEHAVIOR",
+      "short": "Customer behavior, not a system defect",
+      "name": "Genuine customer behavior, not a system defect",
+      "category": "Not actionable - reclassify/suppress",
+      "action": "Auto-classify these as non-actionable at audit time (customer disengaged, declined the recording-consent disclosure, or was never actually engaged) so they stop consuming engineering/product review time as if they were agent failures.",
+      "owner": "Eng - Audit/scoring pipeline",
+      "priority": "Low",
+      "issue_codes": [
+        "agent_silence",
+        "not_interested",
+        "not_responding"
+      ],
+      "red_alert_calls": 216
+    }
+  ],
+  "issue_theme_by_code": {
+    "high_word_error_rate": [
+      "DETECTORBUG",
+      "AUDIOQUALITY",
+      "NONHUMAN"
+    ],
+    "speaking_pace_too_fast": [
+      "SCRIPTPACING",
+      "NONHUMAN",
+      "NONHUMAN",
+      "SCRIPTPACING"
+    ],
+    "call_flow_not_followed": [
+      "OPENERTRIGGER",
+      "NONHUMAN",
+      "EXITLOGIC",
+      "AUDIOQUALITY"
+    ],
+    "high_response_latency": [
+      "NONHUMAN",
+      "OPENERTRIGGER",
+      "LATENCYFILLER"
+    ],
+    "opening_greeting_missing": [
+      "OPENERTRIGGER",
+      "SCRIPTPACING",
+      "NONHUMAN",
+      "AUDIOQUALITY"
+    ],
+    "not_interested": [
+      "SCRIPTPACING",
+      "LISTDATA",
+      "CUSTBEHAVIOR",
+      "LISTDATA"
+    ],
+    "speaking_pace_too_slow": [
+      "DETECTORBUG",
+      "DETECTORBUG",
+      "DETECTORBUG",
+      "LATENCYFILLER"
+    ],
+    "not_responding": [
+      "NONHUMAN",
+      "NONHUMAN",
+      "CUSTBEHAVIOR",
+      "AUDIOQUALITY"
+    ],
+    "agent_silence": [
+      "LATENCYFILLER",
+      "OPENERTRIGGER",
+      "CUSTBEHAVIOR"
+    ],
+    "ivr_detected": [
+      "DETECTORBUG",
+      "NONHUMAN",
+      "NONHUMAN"
+    ],
+    "user_not_available": [
+      "NONHUMAN",
+      "EXITLOGIC",
+      "EXITLOGIC"
+    ],
+    "wrong_number": [
+      "LISTDATA",
+      "LISTDATA",
+      "EXITLOGIC",
+      "NONHUMAN"
+    ],
+    "irrelevant_intent": [
+      "LISTDATA",
+      "LISTDATA",
+      "EXITLOGIC",
+      "EXITLOGIC"
+    ],
+    "voicemail_detected": [
+      "NONHUMAN",
+      "NONHUMAN",
+      "DETECTORBUG"
+    ],
+    "already_addressed": [
+      "LISTDATA",
+      "EXITLOGIC",
+      "LISTDATA"
+    ]
+  }
+}

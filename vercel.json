@@ -1,0 +1,10 @@
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
+  ],
+  "functions": {
+    "api/index.py": {
+      "includeFiles": "{dashboard.html,data/snapshot.json,data/root_cause_themes.json}"
+    }
+  }
+}
