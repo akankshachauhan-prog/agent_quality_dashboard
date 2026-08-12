@@ -4,10 +4,9 @@ Google Sheet quality tracker, with Ticket/Owner/Status/ETA columns per issue
 row and one date column per audited day.
 
 Day values are hardcoded here (pulled from the observability/red-alert data
-for 1-5 Aug via server.py's compute_issues()-equivalent logic, and for 6-7 Aug
-via build root_cause pipeline scripts in this repo) rather than recomputed,
-since this mirrors a manually-curated tracker - update DAYS/SALES_INBOUND/
-SALES_OUTBOUND below when adding a new day.
+for 1-11 Aug via server.py's compute_issues()-equivalent logic) rather than
+recomputed, since this mirrors a manually-curated tracker - update DAYS/
+SALES_INBOUND/SALES_OUTBOUND below when adding a new day.
 
 Usage:
     python3 build_quality_tracker_sheet.py
@@ -21,7 +20,7 @@ from openpyxl.utils import get_column_letter
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_PATH = os.path.join(HERE, "reports", "quality_tracker_Aug2026.xlsx")
 
-DAYS = ["1 Aug", "2 Aug", "3 Aug", "4 Aug", "5 Aug", "6 Aug", "7 Aug"]
+DAYS = ["1 Aug", "2 Aug", "3 Aug", "4 Aug", "5 Aug", "6 Aug", "7 Aug", "8 Aug", "9 Aug", "10 Aug", "11 Aug"]
 
 JIRA_ROWS = [
     ("https://spyne.atlassian.net/browse/RETCONVAI-4406", "", "Piyush",
@@ -31,41 +30,53 @@ JIRA_ROWS = [
      "already fixed and deployed on production for new service prompt"),
 ]
 
+# Each issue gets a count row plus a "% of red alerts" row directly beneath it - that
+# issue's count as a percentage of the day's confirmed red alerts (TP+FN), not of audited
+# calls. An issue can also be flagged on non-red (FP/TN) audited calls, so this can exceed
+# 100%; "-" marks days with zero red alerts, where the ratio is undefined rather than 0%.
+INBOUND_RED = [49, 15, 85, 41, 75, 42, 70, 39, 12, 97, 68]
+OUTBOUND_RED = [81, 1, 117, 29, 139, 37, 109, 56, 0, 117, 82]
+
+
+def issue_rows(title, counts, red):
+    pct = [f"{round(c / r * 100)}%" if r else "-" for c, r in zip(counts, red)]
+    return [(title, counts), ("    % of red alerts", pct)]
+
+
 SALES_INBOUND = [
-    ("Total calls", [132, 34, 290, 284, 266, 161, 0]),
-    ("Audited calls", [70, 20, 120, 58, 123, 62, 0]),
-    ("% Red Alerts", ["37%", "44%", "29%", "14%", "28%", "26%", "0%"]),
-    ("Issue 1: Agent speaking too fast", [49, 15, 83, 41, 73, 42, 0]),
-    ("Issue 2: Word error rate too high", [37, 14, 71, 38, 63, 38, 0]),
-    ("Issue 3: Agent response time too slow", [37, 14, 67, 32, 58, 33, 0]),
-    ("Issue 4: Agent not responding", [16, 2, 30, 11, 25, 22, 0]),
-    ("Issue 5: Agent provides incorrect information", [2, 1, 3, 0, 1, 1, 0]),
-    ("Issue 6: Agent misrepresented tool results", [1, 0, 4, 0, 3, 1, 0]),
-    ("Issue 7: Agent re-asks already answered questions", [0, 1, 3, 1, 3, 1, 0]),
-    ("Issue 8: Required lead information not captured or confirmed", [0, 2, 1, 1, 0, 0, 0]),
+    ("Total calls", [132, 34, 289, 283, 266, 161, 239, 115, 30, 290, 252]),
+    ("Audited calls", [70, 20, 119, 58, 123, 62, 96, 58, 16, 126, 105]),
+    ("% Red Alerts", ["70%", "75%", "71%", "71%", "61%", "68%", "73%", "67%", "75%", "77%", "65%"]),
+    *issue_rows("Issue 1: Agent speaking too fast", [49, 15, 83, 41, 73, 42, 95, 58, 15, 105, 68], INBOUND_RED),
+    *issue_rows("Issue 2: Word error rate too high", [37, 14, 71, 38, 63, 38, 83, 45, 12, 82, 62], INBOUND_RED),
+    *issue_rows("Issue 3: Agent response time too slow", [37, 14, 67, 32, 58, 33, 77, 43, 15, 88, 56], INBOUND_RED),
+    *issue_rows("Issue 4: Agent not responding", [16, 2, 30, 11, 25, 22, 38, 10, 3, 50, 16], INBOUND_RED),
+    *issue_rows("Issue 5: Agent provides incorrect information", [2, 1, 3, 0, 1, 1, 10, 11, 2, 2, 6], INBOUND_RED),
+    *issue_rows("Issue 6: Agent misrepresented tool results", [1, 0, 4, 0, 3, 1, 8, 8, 1, 3, 1], INBOUND_RED),
+    *issue_rows("Issue 7: Agent re-asks already answered questions", [0, 1, 3, 1, 3, 1, 7, 4, 1, 2, 3], INBOUND_RED),
+    *issue_rows("Issue 8: Required lead information not captured or confirmed", [0, 2, 1, 1, 0, 0, 2, 0, 0, 1, 1], INBOUND_RED),
 ]
 
 SALES_OUTBOUND = [
-    ("Total calls", [1375, 9, 1915, 1163, 1879, 595, 0]),
-    ("Audited calls", [90, 1, 148, 33, 190, 49, 0]),
-    ("% Red Alerts", ["6%", "11%", "6%", "2%", "7%", "6%", "0%"]),
-    ("Issue 1: Word error rate too high", [63, 1, 90, 24, 105, 22, 0]),
-    ("Issue 2: Agent speaking too fast", [57, 1, 81, 24, 104, 24, 0]),
-    ("Issue 3: Agent did not follow the expected call flow", [34, 0, 49, 16, 73, 14, 0]),
-    ("Issue 4: Agent did not deliver the opening greeting", [19, 0, 32, 7, 41, 10, 0]),
-    ("Issue 5: Agent response time too slow", [18, 0, 26, 7, 41, 9, 0]),
-    ("Issue 6: Agent speaking too slow", [11, 0, 19, 5, 21, 3, 0]),
-    ("Issue 7: IVR / recorded message answered", [16, 0, 10, 4, 36, 2, 0]),
-    ("Issue 8: Call went to voicemail", [6, 0, 8, 0, 4, 0, 0]),
+    ("Total calls", [1369, 9, 1906, 1158, 1879, 593, 1847, 1163, 7, 1932, 1697]),
+    ("Audited calls", [89, 1, 148, 33, 190, 48, 158, 93, 1, 148, 127]),
+    ("% Red Alerts", ["91%", "100%", "79%", "88%", "73%", "77%", "69%", "60%", "0%", "79%", "65%"]),
+    *issue_rows("Issue 1: Word error rate too high", [71, 1, 118, 27, 154, 33, 109, 68, 1, 84, 55], OUTBOUND_RED),
+    *issue_rows("Issue 2: Agent speaking too fast", [64, 1, 110, 27, 152, 35, 130, 80, 1, 104, 68], OUTBOUND_RED),
+    *issue_rows("Issue 3: Agent did not follow the expected call flow", [38, 0, 72, 17, 109, 24, 96, 55, 1, 72, 51], OUTBOUND_RED),
+    *issue_rows("Issue 4: Agent did not deliver the opening greeting", [22, 0, 39, 7, 62, 14, 46, 31, 1, 31, 21], OUTBOUND_RED),
+    *issue_rows("Issue 5: Agent response time too slow", [20, 0, 40, 9, 70, 16, 51, 21, 1, 41, 18], OUTBOUND_RED),
+    *issue_rows("Issue 6: Agent speaking too slow", [13, 0, 25, 6, 27, 6, 19, 9, 0, 8, 8], OUTBOUND_RED),
+    *issue_rows("Issue 7: IVR / recorded message answered", [18, 0, 19, 5, 47, 5, 28, 24, 0, 27, 22], OUTBOUND_RED),
+    *issue_rows("Issue 8: Call went to voicemail", [6, 0, 9, 0, 8, 0, 12, 4, 1, 12, 4], OUTBOUND_RED),
 ]
 
 SERVICE_ROWS = ["Total calls", "Audited calls", "% Red Alerts", "Issue 1", "Issue 2", "Issue 3", "Issue 4", "Issue 5"]
 
 HEADER_FILL = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
-NEW_DAY_FILL = PatternFill(start_color="DCFCE7", end_color="DCFCE7", fill_type="solid")  # 6-7 Aug: newly added
-CORRECTED_FILL = PatternFill(start_color="FEF3C7", end_color="FEF3C7", fill_type="solid")  # 5 Aug: refetched/corrected
 BOLD = Font(bold=True)
+PCT_ROW_FONT = Font(italic=True, color="6B7280")
 
 
 def write_section(ws, name, data_rows):
@@ -79,11 +90,11 @@ def write_section(ws, name, data_rows):
     for label, vals in data_rows:
         row = [label, "", "", "", ""] + list(vals)
         ws.append(row)
-        ws.cell(row=ws.max_row, column=1).font = BOLD
-        # 5 Aug (corrected via refetch) is 3rd-from-last column; 6/7 Aug (newly added) are the last 2
-        ws.cell(row=ws.max_row, column=len(header) - 2).fill = CORRECTED_FILL
-        for c in (len(header) - 1, len(header)):
-            ws.cell(row=ws.max_row, column=c).fill = NEW_DAY_FILL
+        if label.startswith(" "):
+            for c in range(1, len(row) + 1):
+                ws.cell(row=ws.max_row, column=c).font = PCT_ROW_FONT
+        else:
+            ws.cell(row=ws.max_row, column=1).font = BOLD
     ws.append(["..."])
     ws.append([])
 
@@ -105,16 +116,14 @@ def main():
 
     write_section(ws, "Sales inbound", SALES_INBOUND)
     write_section(ws, "Sales outbound", SALES_OUTBOUND)
-    write_section(ws, "Service inbound", [(label, [""] * 7) for label in SERVICE_ROWS])
-    write_section(ws, "Service outbound", [(label, [""] * 7) for label in SERVICE_ROWS])
+    write_section(ws, "Service inbound", [(label, [""] * len(DAYS)) for label in SERVICE_ROWS])
+    write_section(ws, "Service outbound", [(label, [""] * len(DAYS)) for label in SERVICE_ROWS])
 
     ws.append([
-        "Sales inbound/outbound figures pulled from observability + red-alert audit data (Aug 1-7, 2026). "
-        "5 Aug (highlighted amber) was re-fetched and corrected - the original figures were captured while "
-        "that day was still in progress (only ~16/105 calls in), so totals/audits/issue counts were far too "
-        "low; the numbers here reflect the completed day. 6 Aug is a full day; 7 Aug is 0 across the board "
-        "because no calls had landed yet at fetch time. Service inbound/outbound has no data pipeline yet - "
-        "fill in manually."
+        "Sales inbound/outbound figures pulled from observability + red-alert audit data (Aug 1-11, 2026), "
+        "refetched and recomputed on 12 Aug - the previous 10 Aug figures had been captured mid-day and were "
+        "far too low; the numbers here reflect the completed day. 12 Aug is excluded as it's still in progress "
+        "at fetch time. Service inbound/outbound has no data pipeline yet - fill in manually."
     ])
 
     widths = [58, 14, 12, 40, 10] + [8] * len(DAYS)

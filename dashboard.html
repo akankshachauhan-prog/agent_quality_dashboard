@@ -246,6 +246,16 @@
   </div>
 
   <div class="section">
+    <div class="section-title">Appointment book rate</div>
+    <div class="card">
+      <div class="chart-wrap">
+        <div class="linechart-wrap" id="bookRateChart"></div>
+      </div>
+      <div class="vbar-labels" id="bookRateLabels"></div>
+    </div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Issue breakdown</div>
     <div class="card">
       <div class="group-toggle" id="groupToggle">
@@ -354,6 +364,24 @@
   }).catch(function(err){
     document.getElementById('headSub').textContent = 'Failed to load: ' + err.message;
   });
+
+  // Static snapshot from ClickHouse vini_reporting.conversation_fact, filtered to
+  // agent_type IN ('Sales Inbound', 'Sales Outbound') to match the rest of this dashboard.
+  // Booked Appointments / Converted leads, per the locked ABR definition in
+  // docs/data-sources.md sec 5.4. Last day is partial (in progress at fetch time).
+  var APPOINTMENT_BOOK_RATE = {
+    days: [
+      {day: '2026-08-05', total_leads: 5893, reached_out: 1162, converted: 140, booked: 23, book_rate_pct: 16.4},
+      {day: '2026-08-06', total_leads: 4961, reached_out: 994, converted: 126, booked: 15, book_rate_pct: 11.9},
+      {day: '2026-08-07', total_leads: 5281, reached_out: 925, converted: 108, booked: 9, book_rate_pct: 8.3},
+      {day: '2026-08-08', total_leads: 5471, reached_out: 821, converted: 113, booked: 12, book_rate_pct: 10.6},
+      {day: '2026-08-09', total_leads: 342, reached_out: 133, converted: 41, booked: 14, book_rate_pct: 34.1},
+      {day: '2026-08-10', total_leads: 6447, reached_out: 1075, converted: 139, booked: 20, book_rate_pct: 14.4},
+      {day: '2026-08-11', total_leads: 5360, reached_out: 1149, converted: 96, booked: 13, book_rate_pct: 13.5},
+      {day: '2026-08-12', total_leads: 400, reached_out: 128, converted: 25, booked: 4, book_rate_pct: 16.0}
+    ]
+  };
+  renderBookRateTrend(APPOINTMENT_BOOK_RATE);
 
   fetchJSON('/api/themes').then(function(themes){
     THEMES_DATA = themes;
@@ -534,6 +562,68 @@
       el.addEventListener('mousemove', function(e){
         var lines = codes.map(function(c, si){ return c.title + ': <b>' + d.counts[si] + '</b>'; }).join('<br>');
         showTip(e, '<b>' + fmtDate(d.day) + '</b><br>' + lines);
+      });
+      el.addEventListener('mouseleave', hideTip);
+    });
+
+    labelsEl.innerHTML = '';
+    days.forEach(function(d){
+      var lab = document.createElement('span');
+      lab.textContent = fmtDate(d.day);
+      labelsEl.appendChild(lab);
+    });
+  }
+
+  function renderBookRateTrend(data){
+    var wrap = document.getElementById('bookRateChart');
+    var labelsEl = document.getElementById('bookRateLabels');
+
+    var days = data.days;
+    if (!days.length) {
+      wrap.innerHTML = '<div class="section-subtitle">No appointment data loaded.</div>';
+      labelsEl.innerHTML = '';
+      return;
+    }
+
+    var VBW = 1000, VBH = 300, padTop = 24, padBottom = 8;
+    var plotH = VBH - padTop - padBottom;
+    var n = days.length;
+    var rates = days.map(function(d){ return d.book_rate_pct; });
+    var maxY = Math.max(10, Math.max.apply(null, rates));
+
+    function xAt(i){ return (i + 0.5) / n * VBW; }
+    function yAt(v){ return padTop + plotH - (v / maxY * plotH); }
+
+    var gridlines = [0, 0.5, 1].map(function(f){
+      var y = padTop + plotH * (1 - f);
+      var val = Math.round(maxY * f);
+      return '<line class="gridline" x1="0" y1="' + y + '" x2="' + VBW + '" y2="' + y + '"></line>' +
+        '<text class="axis-label" x="4" y="' + (y - 5) + '">' + val + '%</text>';
+    }).join('');
+
+    var pts = rates.map(function(v, i){ return [xAt(i), yAt(v)]; });
+    var path = pts.map(function(p, i){ return (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
+    var dots = pts.map(function(p){ return '<circle class="series-dot" cx="' + p[0] + '" cy="' + p[1] + '" r="3" fill="var(--series-3)"></circle>'; }).join('');
+
+    var slotW = VBW / n;
+    var hitCols = days.map(function(d, i){
+      return '<rect class="pt-hit" data-i="' + i + '" x="' + (xAt(i) - slotW / 2) + '" y="' + padTop + '" width="' + slotW + '" height="' + plotH + '" fill="transparent" style="cursor:pointer;"></rect>';
+    }).join('');
+
+    wrap.innerHTML = '<svg viewBox="0 0 ' + VBW + ' ' + VBH + '" preserveAspectRatio="none">' +
+      gridlines +
+      '<path class="series-line" d="' + path + '" style="stroke:var(--series-3)"></path>' +
+      dots + hitCols +
+      '</svg>';
+
+    wrap.querySelectorAll('.pt-hit').forEach(function(el){
+      var i = +el.getAttribute('data-i');
+      var d = days[i];
+      el.addEventListener('mousemove', function(e){
+        showTip(e, '<b>' + fmtDate(d.day) + '</b><br>' +
+          'Book rate: <b>' + d.book_rate_pct + '%</b><br>' +
+          'Booked: ' + d.booked + ' / Converted: ' + d.converted + '<br>' +
+          'Reached out: ' + d.reached_out.toLocaleString() + ' / Total leads: ' + d.total_leads.toLocaleString());
       });
       el.addEventListener('mouseleave', hideTip);
     });
